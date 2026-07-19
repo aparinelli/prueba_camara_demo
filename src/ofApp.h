@@ -39,6 +39,7 @@ private:
     glm::vec2 path144GradientRadius = {267.87803f, 181.09991f};
     bool path144CameraReady = false;
     bool path144FaceFinderReady = false;
+    bool path144TrackingEnabled = true;
     bool path144HasCameraFocus = false;
     float path144LastFaceSeenAt = -1000.0f;
 

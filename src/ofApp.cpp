@@ -748,6 +748,12 @@ void ofApp::update() {
 }
 
 void ofApp::actualizarTrackingRostroPath144() {
+    if (!path144TrackingEnabled) {
+        path144CameraFocus = {0.5f, 0.5f};
+        path144HasCameraFocus = false;
+        return;
+    }
+
     if (!path144FaceFinderReady) {
         path144CameraFocus = {0.5f, 0.5f};
         path144HasCameraFocus = false;
@@ -904,6 +910,7 @@ void ofApp::dibujarEspirales() {
 
 void ofApp::dibujarHUD() {
     if (!showHUD) return;
+    std::string tracking = path144TrackingEnabled ? "on" : "off";
     std::string info =
         "── Pattern ──────────────────────\n"
         "  q/w    patScale     = " + ofToString(patScale,     2) + "\n"
@@ -918,6 +925,7 @@ void ofApp::dibujarHUD() {
         "  9/0    sp1 maxRadius   = " + ofToString((int)sp1.maxRadius) + "\n"
         "── Global ───────────────────────\n"
         "  SPACE  pause / resume\n"
+        "  t      tracking = " + tracking + "\n"
         "  h      toggle HUD\n";
     ofDrawBitmapStringHighlight(info, 12, 18,
         ofColor(0,0,0,160), ofColor(255,255,255,180));
@@ -970,6 +978,7 @@ void ofApp::keyPressed(int key) {
         case '8': sp2.revolutions = std::min(8.0f, sp2.revolutions + 0.5f); break;
         case '9': sp1.maxRadius   = std::max(100.f, sp1.maxRadius - 80.f);  break;
         case '0': sp1.maxRadius   = std::min(2000.f,sp1.maxRadius + 80.f);  break;
+        case 't': path144TrackingEnabled = !path144TrackingEnabled; break;
         case ' ': paused  = !paused;  break;
         case 'h': showHUD = !showHUD; break;
     }
