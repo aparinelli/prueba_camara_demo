@@ -175,6 +175,31 @@ void ofApp::configurarPath144() {
 
 void ofApp::configurarPath144Shader() {
     if (ofIsGLProgrammableRenderer()) {
+#ifdef TARGET_EMSCRIPTEN
+        const std::string vertexShader = R"(
+            uniform mat4 modelViewProjectionMatrix;
+            attribute vec4 position;
+            varying vec2 vPosition;
+
+            void main() {
+                vPosition = position.xy;
+                gl_Position = modelViewProjectionMatrix * position;
+            }
+        )";
+
+        const std::string fragmentShader = R"(
+            precision mediump float;
+            uniform vec2 gradientCenter;
+            uniform vec2 gradientRadius;
+            varying vec2 vPosition;
+
+            void main() {
+                vec2 p = (vPosition - gradientCenter) / gradientRadius;
+                float alpha = clamp(1.0 - length(p), 0.0, 1.0);
+                gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
+            }
+        )";
+#else
         const std::string vertexShader = R"(
             #version 150
             uniform mat4 modelViewProjectionMatrix;
@@ -200,6 +225,7 @@ void ofApp::configurarPath144Shader() {
                 outputColor = vec4(1.0, 0.0, 0.0, alpha);
             }
         )";
+#endif
 
         cargarShader(path144GradientShader, vertexShader, fragmentShader, true);
     } else {

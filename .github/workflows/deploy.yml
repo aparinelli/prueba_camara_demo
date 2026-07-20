@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/of
-          key: of-0.12.1-emscripten-emsdk-4.0.4-v2-pages
+          key: of-0.12.1-emscripten-emsdk-4.0.4-v3-pages
 
       - name: Download openFrameworks source
         if: steps.of-cache.outputs.cache-hit != 'true'
@@ -65,12 +65,108 @@ jobs:
           # SharedArrayBuffer/COOP+COEP are not guaranteed for project Pages sites.
           sed -i 's/PLATFORM_PTHREAD = .*/PLATFORM_PTHREAD =/' "$CFG"
           sed -i 's/CFLAG_PLATFORM_PTHREAD = .*/CFLAG_PLATFORM_PTHREAD =/' "$CFG"
-          # ofxAppEmscriptenWindow asks for WebGL2; avoid silently falling back to WebGL1.
-          grep -q 'MIN_WEBGL_VERSION=2' "$CFG" || \
-            printf '\nPLATFORM_LDFLAGS += -s MIN_WEBGL_VERSION=2\n' >> "$CFG"
+          # Let browsers fall back to WebGL1 if WebGL2 context creation fails.
+          sed -i 's/-s MIN_WEBGL_VERSION=2//g' "$CFG"
+          sed -i 's/-sMIN_WEBGL_VERSION=2//g' "$CFG"
+          grep -q 'MAX_WEBGL_VERSION=2' "$CFG" || \
+            printf '\nPLATFORM_LDFLAGS += -s MAX_WEBGL_VERSION=2\n' >> "$CFG"
           # Avoid source-map fetches delaying runtime start.
           sed -i 's/-gsource-map//g' "$CFG"
           sed -i 's/-sLOAD_SOURCE_MAP=1//g' "$CFG"
+
+      - name: Patch oF Emscripten WebGL context setup
+        run: |
+          python3 - <<'EOF'
+          path = '/opt/of/addons/ofxEmscripten/src/ofxAppEmscriptenWindow.cpp'
+          with open(path, 'r', encoding='utf-8') as f:
+              src = f.read()
+
+          if '#include <cstdlib>' not in src:
+              src = src.replace('#include "ofGLProgrammableRenderer.h"\n', '#include "ofGLProgrammableRenderer.h"\n#include <cstdlib>\n')
+
+          old_setup = (
+              '\tattrs.majorVersion = 2;\n'
+              '\tattrs.minorVersion = 0;\n'
+              '\tattrs.alpha = 0;\n'
+              '\n'
+              '\tcontext = emscripten_webgl_create_context("#canvas", &attrs);\n'
+              '\tassert(context);\n'
+              '\t  \n'
+              '\tmakeCurrent();\n'
+              '\n'
+              '\t_renderer = std::make_shared<ofGLProgrammableRenderer>(this);\n'
+              '\t((ofGLProgrammableRenderer*)_renderer.get())->setup(2,0);\n'
+          )
+          new_setup = (
+              '\tint rendererMajor = 2;\n'
+              '\tint rendererMinor = 0;\n'
+              '\tattrs.majorVersion = rendererMajor;\n'
+              '\tattrs.minorVersion = rendererMinor;\n'
+              '\tattrs.alpha = 0;\n'
+              '\n'
+              '\tcontext = emscripten_webgl_create_context("#canvas", &attrs);\n'
+              '\tif(context == 0){\n'
+              '\t\tattrs.antialias = 0;\n'
+              '\t\tattrs.stencil = 0;\n'
+              '\t\tcontext = emscripten_webgl_create_context("#canvas", &attrs);\n'
+              '\t}\n'
+              '\tif(context == 0){\n'
+              '\t\trendererMajor = 1;\n'
+              '\t\trendererMinor = 0;\n'
+              '\t\tattrs.majorVersion = rendererMajor;\n'
+              '\t\tattrs.minorVersion = rendererMinor;\n'
+              '\t\tcontext = emscripten_webgl_create_context("#canvas", &attrs);\n'
+              '\t}\n'
+              '\tif(context == 0){\n'
+              '\t\tEM_ASM({\n'
+              '\t\t\tconsole.error("openFrameworks failed to create a WebGL context for #canvas");\n'
+              '\t\t});\n'
+              '\t\tstd::abort();\n'
+              '\t}\n'
+              '\n'
+              '\tEMSCRIPTEN_RESULT makeCurrentResult = emscripten_webgl_make_context_current(context);\n'
+              '\tif(makeCurrentResult != EMSCRIPTEN_RESULT_SUCCESS){\n'
+              '\t\tEM_ASM({\n'
+              '\t\t\tconsole.error("openFrameworks failed to make the WebGL context current");\n'
+              '\t\t});\n'
+              '\t\tstd::abort();\n'
+              '\t}\n'
+              '\n'
+              '\t_renderer = std::make_shared<ofGLProgrammableRenderer>(this);\n'
+              '\t((ofGLProgrammableRenderer*)_renderer.get())->setup(rendererMajor, rendererMinor);\n'
+          )
+          if old_setup in src:
+              src = src.replace(old_setup, new_setup)
+          elif 'rendererMajor = 1' not in src:
+              raise SystemExit('Could not patch ofxAppEmscriptenWindow::setup WebGL context handling')
+
+          old_make_current = (
+              'void ofxAppEmscriptenWindow::makeCurrent(){\n'
+              '\tif(context != 0){\n'
+              '\t\temscripten_webgl_make_context_current(context);\t\n'
+              '\t}\n'
+              '}\n'
+          )
+          new_make_current = (
+              'void ofxAppEmscriptenWindow::makeCurrent(){\n'
+              '\tif(context != 0){\n'
+              '\t\tEMSCRIPTEN_RESULT makeCurrentResult = emscripten_webgl_make_context_current(context);\n'
+              '\t\tif(makeCurrentResult != EMSCRIPTEN_RESULT_SUCCESS){\n'
+              '\t\t\tEM_ASM({\n'
+              '\t\t\t\tconsole.error("openFrameworks lost the current WebGL context");\n'
+              '\t\t\t});\n'
+              '\t\t}\n'
+              '\t}\n'
+              '}\n'
+          )
+          if old_make_current in src:
+              src = src.replace(old_make_current, new_make_current)
+          elif 'lost the current WebGL context' not in src:
+              raise SystemExit('Could not patch ofxAppEmscriptenWindow::makeCurrent')
+
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(src)
+          EOF
 
       - name: Patch oF shader logging to avoid Emscripten locale crash
         run: |
