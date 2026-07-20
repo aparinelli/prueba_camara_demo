@@ -358,7 +358,9 @@ void ofApp::configurarPath144Camara() {
     seleccionarDispositivoCamaraPath144();
     configurarRecursosCamaraPath144();
     configurarDetectorRostroPath144();
+#ifndef TARGET_EMSCRIPTEN
     configurarPath144CamaraShaders();
+#endif
     actualizarMascaraPath144();
 }
 
