@@ -192,6 +192,75 @@ jobs:
           perl -0pi -e 's/#include <random>/#include <chrono>\n#include <random>/' "$RNG"
           perl -0pi -e 's/std::random_device rd_ \{\};\n\tstd::seed_seq seq_ \{ rd_\(\), rd_\(\), rd_\(\), rd_\(\) \}; \/\/ 4 is considered fine for non-cryptographic needs\n\tstd::mt19937 gen_ \{ seq_ \};/#ifdef TARGET_EMSCRIPTEN\n\tstd::mt19937 gen_ { static_cast<std::mt19937::result_type>(std::chrono::steady_clock::now().time_since_epoch().count()) };\n#else\n\tstd::random_device rd_ {};\n\tstd::seed_seq seq_ { rd_(), rd_(), rd_(), rd_() }; \/\/ 4 is considered fine for non-cryptographic needs\n\tstd::mt19937 gen_ { seq_ };\n#endif/' "$RNG"
 
+      - name: Patch oF Emscripten video bridge signatures
+        run: |
+          python3 - <<'EOF'
+          from pathlib import Path
+
+          path = Path("/opt/of/addons/ofxEmscripten/libs/html5video/lib/emscripten/library_html5video.js")
+          src = path.read_text()
+
+          src = src.replace(
+              "    html5video_player_loop: function(id) {\n"
+              "        return VIDEO.player[player_id].loop;\n"
+              "    },",
+              "    html5video_player_loop: function(id) {\n"
+              "        return VIDEO.player[id].loop;\n"
+              "    },",
+          )
+
+          signatures = {
+              "html5video_player_create": "i",
+              "html5video_player_delete": "vi",
+              "html5video_player_load": "vip",
+              "html5video_player_load_url": "vip",
+              "html5video_player_pixel_format": "pi",
+              "html5video_player_set_pixel_format": "vip",
+              "html5video_player_update": "iiip",
+              "html5video_player_play": "vi",
+              "html5video_player_pause": "vi",
+              "html5video_player_stop": "vi",
+              "html5video_player_texture_id": "ii",
+              "html5video_player_width": "ii",
+              "html5video_player_height": "ii",
+              "html5video_player_is_paused": "ii",
+              "html5video_player_ready_state": "ii",
+              "html5video_player_duration": "di",
+              "html5video_player_current_time": "di",
+              "html5video_player_set_current_time": "vid",
+              "html5video_player_ended": "ii",
+              "html5video_player_set_playback_rate": "vid",
+              "html5video_player_playback_rate": "di",
+              "html5video_player_volume": "di",
+              "html5video_player_set_volume": "vid",
+              "html5video_player_set_loop": "vii",
+              "html5video_player_loop": "ii",
+              "html5video_player_pan": "di",
+              "html5video_player_set_pan": "vid",
+              "html5video_list_devices": "v",
+              "html5video_grabber_create": "i",
+              "html5video_grabber_init": "viiii",
+              "html5video_grabber_pixel_format": "pi",
+              "html5video_grabber_set_pixel_format": "vip",
+              "html5video_grabber_update": "iiip",
+              "html5video_grabber_texture_id": "ii",
+              "html5video_grabber_width": "ii",
+              "html5video_grabber_height": "ii",
+              "html5video_grabber_ready_state": "ii",
+          }
+
+          for name, sig in signatures.items():
+              marker = f"    {name}: function"
+              sig_line = f"    {name}__sig: '{sig}',\n"
+              if sig_line in src:
+                  continue
+              if marker not in src:
+                  raise SystemExit(f"Missing JS bridge function {name}")
+              src = src.replace(marker, sig_line + marker, 1)
+
+          path.write_text(src)
+          EOF
+
       - name: Compile openFrameworks core for Emscripten
         if: steps.of-cache.outputs.cache-hit != 'true'
         run: |
