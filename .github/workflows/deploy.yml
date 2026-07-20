@@ -210,6 +210,93 @@ jobs:
               "    },",
           )
 
+          src, count = re.subn(
+              r"(\s*)video\.autoplay\s*=\s*true;\n(\s*)video\.pixelFormat = \"RGB\";",
+              "\\1video.autoplay = true;\n"
+              "\\1video.playsInline = true;\n"
+              "\\1video.muted = true;\n"
+              "\\2video.pixelFormat = \"RGB\";",
+              src,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not patch grabber video element attributes")
+
+          src, count = re.subn(
+              r'(if \(video\.pixelFormat=="RGBA"\)\{\s*)array\.set\(imageData\.data\);',
+              r'\1array = Module.HEAPU8.subarray(dstPixels, dstPixels+(video.width*video.height*4));'
+              "\n\t            \tarray.set(imageData.data);",
+              src,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not patch RGBA grabber pixel copy")
+
+          src, count = re.subn(
+              r"}catch\(e\)\{console\.log\(e\);\}",
+              "}catch(e){console.error(\"Couldn't update video texture!\", e);}",
+              src,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not patch video update error handler")
+
+          constraints_pattern = re.compile(
+              r"\n\s*if\(framerate==-1\) \{[\s\S]*?\n\s*}\s*\n\s*navigator\.mediaDevices\.getUserMedia\(constraints\)",
+              re.MULTILINE,
+          )
+          src, count = constraints_pattern.subn(
+              "\n"
+              "            var constraints = {\n"
+              "                audio: false,\n"
+              "                video: {\n"
+              "                    width: { ideal: w },\n"
+              "                    height: { ideal: h },\n"
+              "                    facingMode: \"user\"\n"
+              "                }\n"
+              "            };\n"
+              "            if (framerate > 0) {\n"
+              "                constraints.video.frameRate = { ideal: framerate };\n"
+              "            }\n"
+              "\n"
+              "        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {\n"
+              "          console.error(\"Couldn't init grabber!\", new Error(\"getUserMedia unavailable\"));\n"
+              "          return;\n"
+              "        }\n"
+              "\n"
+              "        navigator.mediaDevices.getUserMedia(constraints)",
+              src,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not patch grabber media constraints")
+
+          src = src.replace(
+              "          VIDEO.grabber[grabber_id].onloadedmetadata = function (e) {\n"
+              "            VIDEO.grabber[grabber_id].play();\n"
+              "          }",
+              "          VIDEO.grabber[grabber_id].onloadedmetadata = function (e) {\n"
+              "            var playPromise = VIDEO.grabber[grabber_id].play();\n"
+              "            if (playPromise && playPromise.catch) {\n"
+              "              playPromise.catch(function(err) {\n"
+              "                console.error(\"Couldn't play grabber!\", err);\n"
+              "              });\n"
+              "            }\n"
+              "          }",
+          )
+
+          src, count = re.subn(
+              r"\s*\.catch\(function\(err\) \{\s*console\.log\(e\);\s*\}\);",
+              "\n"
+              "        .catch(function(err) {\n"
+              "          console.error(\"Couldn't init grabber!\", err);\n"
+              "        });",
+              src,
+              count=1,
+          )
+          if count != 1 or ("console" + ".log(e)") in src:
+              raise SystemExit("Unpatched grabber error handler")
+
           signatures = {
               "html5video_player_create": "i",
               "html5video_player_delete": "vi",

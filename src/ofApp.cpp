@@ -91,7 +91,11 @@ void dibujarBlurPass(ofShader& shader, ofFbo& source, ofFbo& target, const glm::
     ofClear(0, 0, 0, 255);
     shader.begin();
     shader.setUniformTexture("sourceTex", source.getTexture(), 0);
+#ifdef TARGET_EMSCRIPTEN
+    shader.setUniform2f("direction", direction.x / SVG_W, direction.y / SVG_H);
+#else
     shader.setUniform2f("direction", direction);
+#endif
     source.draw(0, 0);
     shader.end();
     target.end();
@@ -261,16 +265,12 @@ void ofApp::configurarPath144Camara() {
     path144BlurFbo[0].allocate(SVG_W, SVG_H, GL_RGBA);
     path144BlurFbo[1].allocate(SVG_W, SVG_H, GL_RGBA);
 
-#ifdef TARGET_EMSCRIPTEN
-    path144CameraReady = false;
-#else
-    seleccionarDispositivoCamaraPath144();
-    configurarRecursosCamaraPath144();
-#endif
-    configurarDetectorRostroPath144();
 #ifndef TARGET_EMSCRIPTEN
-    configurarPath144CamaraShaders();
+    seleccionarDispositivoCamaraPath144();
 #endif
+    configurarRecursosCamaraPath144();
+    configurarDetectorRostroPath144();
+    configurarPath144CamaraShaders();
     actualizarMascaraPath144();
 }
 
@@ -312,11 +312,17 @@ void ofApp::seleccionarDispositivoCamaraPath144() {
 void ofApp::configurarRecursosCamaraPath144() {
     path144Camera.setDesiredFrameRate(30);
     path144Camera.setup(1280, 720);
+#ifdef TARGET_EMSCRIPTEN
+    path144CameraReady = true;
+#else
     path144CameraReady = path144Camera.isInitialized();
+#endif
 }
 
 void ofApp::configurarDetectorRostroPath144() {
-#ifndef TARGET_EMSCRIPTEN
+#ifdef TARGET_EMSCRIPTEN
+    path144FaceFinderReady = false;
+#else
     const auto cascadePath = ofToDataPath("haarcascade_frontalface_default.xml", true);
     if (!ofFile::doesFileExist(cascadePath)) {
         ofLogWarning("camera") << "missing haar cascade: " << cascadePath;
@@ -333,6 +339,88 @@ void ofApp::configurarDetectorRostroPath144() {
 
 void ofApp::configurarPath144CamaraShaders() {
     if (ofIsGLProgrammableRenderer()) {
+#ifdef TARGET_EMSCRIPTEN
+        const std::string blurVertexShader = R"(
+            uniform mat4 modelViewProjectionMatrix;
+            attribute vec4 position;
+            attribute vec2 texcoord;
+            varying vec2 vTexCoord;
+
+            void main() {
+                vTexCoord = texcoord;
+                gl_Position = modelViewProjectionMatrix * position;
+            }
+        )";
+
+        const std::string blurFragmentShader = R"(
+            precision mediump float;
+            uniform sampler2D sourceTex;
+            uniform vec2 direction;
+            varying vec2 vTexCoord;
+
+            void main() {
+                vec4 sum = texture2D(sourceTex, vTexCoord) * 0.227027;
+                sum += texture2D(sourceTex, vTexCoord + direction * 1.384615) * 0.316216;
+                sum += texture2D(sourceTex, vTexCoord - direction * 1.384615) * 0.316216;
+                sum += texture2D(sourceTex, vTexCoord + direction * 3.230769) * 0.070270;
+                sum += texture2D(sourceTex, vTexCoord - direction * 3.230769) * 0.070270;
+                gl_FragColor = sum;
+            }
+        )";
+
+        const std::string cameraVertexShader = R"(
+            uniform mat4 modelViewProjectionMatrix;
+            attribute vec4 position;
+            varying vec2 vCanvasPosition;
+
+            void main() {
+                vCanvasPosition = position.xy;
+                gl_Position = modelViewProjectionMatrix * position;
+            }
+        )";
+
+        const std::string cameraFragmentShader = R"(
+            precision mediump float;
+            uniform sampler2D cameraTex;
+            uniform sampler2D maskTex;
+            uniform vec2 cameraSize;
+            uniform vec2 canvasSize;
+            uniform vec4 pathBounds;
+            uniform vec2 focusCenter;
+            uniform float mirrorCamera;
+            varying vec2 vCanvasPosition;
+
+            vec2 coverCameraCoord(vec2 canvasPosition) {
+                vec2 safePathSize = max(pathBounds.zw, vec2(1.0));
+                vec2 targetUv = clamp((canvasPosition - pathBounds.xy) / safePathSize, vec2(0.0), vec2(1.0));
+                float targetAspect = safePathSize.x / safePathSize.y;
+                float cameraAspect = cameraSize.x / max(cameraSize.y, 1.0);
+                vec2 sourceSize = vec2(1.0);
+
+                if (cameraAspect > targetAspect) {
+                    sourceSize.x = targetAspect / cameraAspect;
+                } else {
+                    sourceSize.y = cameraAspect / targetAspect;
+                }
+
+                vec2 effectiveFocus = clamp(focusCenter, vec2(0.0), vec2(1.0));
+                if (mirrorCamera > 0.5) effectiveFocus.x = 1.0 - effectiveFocus.x;
+
+                vec2 sourceMin = clamp(effectiveFocus - sourceSize * 0.5, vec2(0.0), vec2(1.0) - sourceSize);
+                vec2 cameraUv = sourceMin + targetUv * sourceSize;
+                if (mirrorCamera > 0.5) cameraUv.x = 1.0 - cameraUv.x;
+
+                return cameraUv;
+            }
+
+            void main() {
+                vec2 maskUv = clamp(vCanvasPosition / canvasSize, vec2(0.0), vec2(1.0));
+                float mask = texture2D(maskTex, maskUv).r;
+                vec3 cameraColor = texture2D(cameraTex, coverCameraCoord(vCanvasPosition)).rgb;
+                gl_FragColor = vec4(cameraColor, mask);
+            }
+        )";
+#else
         const std::string blurVertexShader = R"(
             #version 150
             uniform mat4 modelViewProjectionMatrix;
@@ -415,6 +503,7 @@ void ofApp::configurarPath144CamaraShaders() {
                 outputColor = vec4(cameraColor, mask);
             }
         )";
+#endif
 
         cargarShader(path144BlurShader, blurVertexShader, blurFragmentShader, true);
         cargarShader(path144CameraShader, cameraVertexShader, cameraFragmentShader, true);
@@ -652,7 +741,12 @@ void ofApp::configurarCaja() {
 void ofApp::update() {
     if (path144CameraReady) {
         path144Camera.update();
-        if (path144Camera.isFrameNew()) actualizarTrackingRostroPath144();
+        if (path144Camera.getTexture().isAllocated()
+                && path144Camera.getWidth() > 0.0f
+                && path144Camera.getHeight() > 0.0f
+                && path144Camera.isFrameNew()) {
+            actualizarTrackingRostroPath144();
+        }
     }
     if (paused) return;
 
@@ -764,6 +858,8 @@ void ofApp::dibujarPath144() {
 void ofApp::dibujarCamaraPath144() {
     if (!path144CameraReady) return;
     if (!path144CameraShader.isLoaded()) return;
+    if (!path144Camera.getTexture().isAllocated()) return;
+    if (path144Camera.getWidth() <= 0.0f || path144Camera.getHeight() <= 0.0f) return;
 
     ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     path144CameraShader.begin();

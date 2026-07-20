@@ -27,3 +27,5 @@ grep -Eq 'cameraUv\.x[[:space:]]*=[[:space:]]*1\.0 - cameraUv\.x' "$root/src/ofA
 grep -Eq 'setUniform4f\("pathBounds"' "$root/src/ofApp.cpp"
 grep -Eq 'setUniform2f\("focusCenter"' "$root/src/ofApp.cpp"
 grep -Eq 'setUniform1f\("mirrorCamera",[[:space:]]*1\.0f\)' "$root/src/ofApp.cpp"
+grep -Eq 'path144Camera\.getTexture\(\)\.isAllocated\(\)' "$root/src/ofApp.cpp"
+grep -Eq 'uniform sampler2D cameraTex' "$root/src/ofApp.cpp"
