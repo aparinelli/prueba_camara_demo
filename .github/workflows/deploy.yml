@@ -406,6 +406,49 @@ jobs:
               <script type="text/javascript" src="index.js"></script>
           '''
 
+          fit_style = '''    <style id="prueba-camara-fit-screen">
+                html, body {
+                  margin: 0;
+                  width: 100%;
+                  height: 100%;
+                  overflow: hidden;
+                  background: #fff;
+                }
+
+                #header {
+                  width: 100vw;
+                  height: 100vh;
+                  overflow: hidden;
+                }
+
+                #logo, #controls, #status, #spinner, progress, textarea#output {
+                  display: none !important;
+                }
+
+                .emscripten_border {
+                  width: 100vw;
+                  height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  overflow: hidden;
+                  border: 0;
+                }
+
+                canvas.emscripten {
+                  width: min(100vw, calc(100vh * 16 / 9));
+                  height: min(calc(100vw * 9 / 16), 100vh);
+                  display: block;
+                  outline: none;
+                }
+              </style>
+          '''
+
+          if "prueba-camara-fit-screen" not in html:
+              if "  </head>" not in html:
+                  raise SystemExit("Could not find closing head tag in generated Emscripten HTML")
+              html = html.replace("  </head>", fit_style + "  </head>", 1)
+
           if "  </body>" not in html:
               raise SystemExit("Could not find closing body tag in generated Emscripten HTML")
 
