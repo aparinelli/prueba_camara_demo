@@ -194,6 +194,11 @@ jobs:
 
       - name: Patch oF Emscripten video bridge signatures
         run: |
+          if ! grep -R -E 'ofVideoGrabber|ofVideoPlayer' src >/dev/null 2>&1; then
+            echo "Project does not use video APIs; skipping video bridge patch."
+            exit 0
+          fi
+
           python3 - <<'EOF'
           from pathlib import Path
           import re
